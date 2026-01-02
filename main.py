@@ -75,7 +75,7 @@ def job():
 
     page = ChromiumPage(co)
     
-    # 【修复重点】修改为复数形式 timeouts
+    # 设置超时 (已修正为 timeouts)
     page.set.timeouts(20)
     
     try:
@@ -87,7 +87,9 @@ def job():
 
         # 访问 Discord 之前先清空 Cookie
         page.get('https://discord.com/login', retry=3, timeout=15)
-        page.clear_cookies()
+        
+        # 【修复重点】新版 API 清除 Cookie 的正确写法
+        page.set.cookies.clear()
         
         handle_cloudflare(page)
 
