@@ -63,20 +63,25 @@ def job():
     # --- 1. 浏览器初始化 ---
     co = ChromiumOptions()
     
-    # 针对 GitHub Actions 环境的关键配置
-    co.set_argument('--headless=new')       # 新版无头模式
-    co.set_argument('--disable-dev-shm-usage') # 防止内存崩溃
+    # 针对 GitHub Actions 环境的完整配置
+    co.set_argument('--headless=new')       
+    co.set_argument('--disable-dev-shm-usage') 
     co.set_argument('--no-sandbox')
     co.set_argument('--disable-gpu')
     co.set_argument('--ignore-certificate-errors')
+    # 强制设置大窗口，防止按钮被折叠
+    co.set_argument('--window-size=1920,1080')
     co.set_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
     
     co.auto_port() 
 
     page = ChromiumPage(co)
     
-    # 设置超时 (已修正为 timeouts)
-    page.set.timeouts(20)
+    # 【修复 1】设置超时的正确写法 (复数)
+    try:
+        page.set.timeouts(20)
+    except:
+        pass # 防止极少数版本差异导致的报错
     
     try:
         # ==================== 步骤 1: 强力注入 Token ====================
@@ -88,8 +93,11 @@ def job():
         # 访问 Discord 之前先清空 Cookie
         page.get('https://discord.com/login', retry=3, timeout=15)
         
-        # 【修复重点】新版 API 清除 Cookie 的正确写法
-        page.set.cookies.clear()
+        # 【修复 2】清除 Cookie 的正确写法 (适配 4.x)
+        try:
+            page.set.cookies.clear()
+        except:
+            page.clear_cookies() # 兼容旧版本
         
         handle_cloudflare(page)
 
@@ -105,7 +113,9 @@ def job():
         time.sleep(5)
         
         if page.ele('css:input[name="email"]'):
-            print("⚠️ 警告：Discord Token 可能已失效。尝试继续...")
+            # 如果注入后还是显示登录框，说明 Token 废了，后面也就不用跑了
+            page.get_screenshot(path='token_invalid.jpg')
+            raise Exception("❌ Discord Token 无效或已过期（仍显示登录框）。请重新提取 Token！")
         else:
             print(">>> ✅ Discord Token 有效，已跳过密码输入。")
 
