@@ -22,33 +22,34 @@ jobs:
           python-version: '3.10'
 
       # 3. 安装 Chrome 浏览器
+      # DrissionPage 需要 Chrome 环境
       - name: Install Chrome
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
       # 4. 安装依赖库
-      # main.py 用到了 DrissionPage (浏览器控制) 和 requests (下载插件)
       - name: Install Dependencies
         run: pip install DrissionPage requests
 
       # 5. 运行续期脚本
       - name: Run Renew Script
         env:
-          # ⚠️ 关键：将 GitHub Secrets 里的账号密码传递给脚本
+          # ⚠️ 这里将 GitHub Secrets 传递给 Python 脚本
           KB_EMAIL: ${{ secrets.KB_EMAIL }}
           KB_PASSWORD: ${{ secrets.KB_PASSWORD }}
+          KB_RENEW_URL: ${{ secrets.KB_RENEW_URL }}
         run: |
-          # 启动虚拟显示器 (Xvfb) 以适配 DrissionPage 在 Linux 下的运行
+          # 启动虚拟显示器 (Xvfb) 防止无头浏览器报错
           export DISPLAY=:99
           sudo Xvfb -ac :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
           
-          # 执行 Python 脚本
+          # 运行脚本
           python main.py
 
       # 6. 失败时上传截图 (方便调试)
       - name: Upload Debug Screenshots
-        if: failure() # 只有运行失败时才执行这一步
+        if: failure() # 只有运行失败时才执行
         uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
