@@ -2,58 +2,36 @@ name: Katabump Auto Renew
 
 on:
   schedule:
-    # 计划任务：每 3 天的 UTC时间 02:00 (北京时间 10:00) 运行一次
     - cron: '0 2 */3 * *'
-  workflow_dispatch: # 允许手动点击 "Run workflow" 按钮触发
+  workflow_dispatch:
 
 jobs:
   renew_job:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 拉取代码
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. 准备 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 3. 安装 Chrome 浏览器
-      # DrissionPage 需要 Chrome 环境
+      # 👇👇👇 这一步绝对不能少！没有它 DrissionPage 启动不了 👇👇👇
       - name: Install Chrome
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
-      # 4. 安装依赖库
       - name: Install Dependencies
         run: pip install DrissionPage requests
 
-      # 5. 运行续期脚本 (关键步骤)
       - name: Run Renew Script
         env:
-          # 传递 GitHub Secrets 到环境变量
           KB_EMAIL: ${{ secrets.KB_EMAIL }}
           KB_PASSWORD: ${{ secrets.KB_PASSWORD }}
           KB_RENEW_URL: ${{ secrets.KB_RENEW_URL }}
         run: |
-          # 启动虚拟显示器 (Xvfb) 防止无头浏览器报错
-          export DISPLAY=:99
-          sudo Xvfb -ac :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
-          
-          # ⚠️ 关键修改：加上 -u 参数
-          # -u (unbuffered) 强制 Python 实时输出日志，不缓存
-          # 这样你在 GitHub Actions 网页上就能一行一行看着它跑，不用干等
+          # 启动 Python (带 -u 参数实时输出)
           python -u main.py
-
-      # 6. 失败时上传截图 (虽然新版脚本不太依赖截图了，留着备用)
-      - name: Upload Debug Screenshots
-        if: failure() 
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-screenshots
-          path: '*.jpg'
-          retention-days: 3
