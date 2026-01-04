@@ -68,7 +68,7 @@ def robust_click(ele):
 
 def capture_real_message(page):
     """
-    【核心修正】不再猜测结果，而是抓取页面真实文字
+    【核心修正】修复了 is_displayed 属性报错
     """
     print(">>> [6/5] 正在扫描页面真实反馈...")
     start_time = time.time()
@@ -77,7 +77,7 @@ def capture_real_message(page):
 
     # 轮询 10 秒，捕捉动态出现的提示
     while time.time() - start_time < 10:
-        # 1. 优先抓取 Bootstrap 风格的提示框 (根据您的截图，红条通常是 alert 类)
+        # 1. 优先抓取 Bootstrap 风格的提示框
         alerts = page.eles('css:div[class*="alert"]')
         # 2. 同时也抓取包含 "renew" 关键字的文本行
         body_text = page.ele('tag:body').text
@@ -87,14 +87,14 @@ def capture_real_message(page):
         
         # 提取 Alert 内容
         for alert in alerts:
-            if alert.is_displayed():
+            # 【修复点】使用 .states.is_displayed 而不是 .is_displayed()
+            if alert.states.is_displayed:
                 messages.append(f"[提示框]: {alert.text}")
 
-        # 提取正文中包含 renew 的关键句 (防止漏掉)
+        # 提取正文中包含 renew 的关键句
         lines = body_text.split('\n')
         for line in lines:
-            if "renew" in line.lower() and len(line) < 100: # 只抓取短句，排除长段落
-                # 去重
+            if "renew" in line.lower() and len(line) < 100: 
                 if line not in str(messages):
                     messages.append(f"[文本行]: {line}")
 
@@ -118,7 +118,7 @@ def capture_real_message(page):
         time.sleep(1)
     
     if not found_any_message:
-        print("⚠️ 未捕捉到明显提示，请查看上方日志中的最后截图(如有)或自行检查。")
+        print("⚠️ 未捕捉到明显提示，请查看上方日志或自行检查。")
     
     return True
 
@@ -197,7 +197,7 @@ def job():
                     
                     if not confirm_btn.states.is_enabled:
                          print("⚠️ 按钮是灰色的 (Disabled)，尝试捕捉页面提示...")
-                         capture_real_message(page) # 按钮不可点，直接看提示
+                         capture_real_message(page)
                     else:
                         if robust_click(confirm_btn):
                             print("🎉🎉🎉 点击确认指令已发送！")
