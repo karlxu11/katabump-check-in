@@ -33,13 +33,14 @@ def download_and_extract_silk_extension():
     except: return None
 
 def wait_for_cloudflare(page, timeout=20):
-    """等待插件自动过盾"""
-    print(f"--- [盾] 等待 Cloudflare ({timeout}s)... ---")
+    """
+    等待并处理页面级的 Cloudflare
+    """
+    print(f"--- [盾] 检查全页 Cloudflare ({timeout}s)... ---")
     start = time.time()
     while time.time() - start < timeout:
         if "just a moment" not in page.title.lower():
             if not page.ele('@src^https://challenges.cloudflare.com'):
-                print("--- [盾] 通行！ ---")
                 return True
         try:
             iframe = page.get_frame('@src^https://challenges.cloudflare.com')
@@ -48,16 +49,40 @@ def wait_for_cloudflare(page, timeout=20):
         time.sleep(1)
     return False
 
+def solve_modal_captcha(modal):
+    """
+    【新增】专门解决弹窗里的验证码
+    """
+    print(">>> [验证] 正在寻找弹窗内的 Captcha...")
+    # 在弹窗元素内部寻找 iframe
+    iframe = modal.ele('tag:iframe') 
+    # 或者更精确: modal.ele('@src^https://challenges.cloudflare.com')
+    
+    if iframe:
+        print(">>> [验证] 发现验证码 iframe，尝试点击...")
+        try:
+            # 点击 iframe 内部
+            iframe.ele('tag:body').click(by_js=True)
+            # 点击后必须死等几秒，等它转圈圈变绿
+            print(">>> [验证] 已点击，等待验证生效 (5秒)...")
+            time.sleep(5)
+            return True
+        except Exception as e:
+            print(f"⚠️ 验证码点击异常: {e}")
+    else:
+        print(">>> [验证] 弹窗内未发现 iframe，可能无验证码。")
+    return False
+
 def robust_click(ele):
     """多重保障点击逻辑"""
     try:
         ele.scroll.to_see()
         time.sleep(0.5)
-        print(">>> [动作] 尝试 JS 暴力点击...")
+        print(f">>> [动作] 点击按钮: {ele.text}")
         ele.click(by_js=True)
         return True
     except Exception as e:
-        print(f"⚠️ JS点击失败 ({e})，尝试普通点击...")
+        print(f"⚠️ JS点击失败，尝试普通点击...")
         try:
             ele.wait.displayed(timeout=3)
             ele.click()
@@ -67,36 +92,20 @@ def robust_click(ele):
             return False
 
 def capture_real_message(page):
-    """
-    【核心修正】修复了 is_displayed 属性报错
-    """
+    """扫描页面真实反馈"""
     print(">>> [6/5] 正在扫描页面真实反馈...")
     start_time = time.time()
-    
     found_any_message = False
 
-    # 轮询 10 秒，捕捉动态出现的提示
     while time.time() - start_time < 10:
-        # 1. 优先抓取 Bootstrap 风格的提示框
-        alerts = page.eles('css:div[class*="alert"]')
-        # 2. 同时也抓取包含 "renew" 关键字的文本行
-        body_text = page.ele('tag:body').text
-        
-        # 整理所有发现的信息
+        alerts = page.eles('css:div[class*="alert"]') # 抓取提示框
         messages = []
         
-        # 提取 Alert 内容
         for alert in alerts:
-            # 【修复点】使用 .states.is_displayed 而不是 .is_displayed()
+            # 修复 DrissionPage 4.x 语法: 使用 .states.is_displayed
             if alert.states.is_displayed:
-                messages.append(f"[提示框]: {alert.text}")
-
-        # 提取正文中包含 renew 的关键句
-        lines = body_text.split('\n')
-        for line in lines:
-            if "renew" in line.lower() and len(line) < 100: 
-                if line not in str(messages):
-                    messages.append(f"[文本行]: {line}")
+                text = alert.text
+                messages.append(f"[提示框]: {text}")
 
         if messages:
             found_any_message = True
@@ -106,8 +115,13 @@ def capture_real_message(page):
                 print(f"   {msg}")
             print("="*50 + "\n")
             
-            # 智能判断结果
             full_msg_str = str(messages).lower()
+            
+            # 成功抓取到验证码错误的提示，说明脚本之前的操作确实被拦截了
+            if "captcha" in full_msg_str or "验证码" in full_msg_str:
+                print("⚠️ 警告：因为验证码未通过被拦截，本次操作可能失败。")
+                return False
+
             if "can't renew" in full_msg_str or "too early" in full_msg_str:
                 print("✅ 判定结果: 还没到时间 (脚本操作正确)")
                 return True
@@ -118,8 +132,7 @@ def capture_real_message(page):
         time.sleep(1)
     
     if not found_any_message:
-        print("⚠️ 未捕捉到明显提示，请查看上方日志或自行检查。")
-    
+        print("⚠️ 未捕捉到明显提示。")
     return True
 
 def job():
@@ -139,7 +152,6 @@ def job():
     except: pass
 
     try:
-        # --- 变量检查 ---
         email = os.environ.get("KB_EMAIL")
         password = os.environ.get("KB_PASSWORD")
         target_url = os.environ.get("KB_RENEW_URL")
@@ -179,32 +191,33 @@ def job():
         if renew_btn:
             robust_click(renew_btn)
             print(">>> 已点击主按钮，等待弹窗加载...")
-            time.sleep(5)
+            time.sleep(5) # 必须等待弹窗完全加载，否则找不到里面的 iframe
             
-            # ==================== 4. 处理弹窗 ====================
+            # ==================== 4. 处理弹窗 (重点) ====================
             print(">>> [5/5] 处理续期弹窗...")
-            wait_for_cloudflare(page)
             
             modal = page.ele('css:.modal-content')
             if modal:
-                print(">>> 检测到弹窗，寻找蓝色确认按钮...")
+                print(">>> 检测到弹窗容器...")
+                
+                # 【关键修正】在点击确认前，先处理弹窗里的验证码！
+                solve_modal_captcha(modal)
+                
+                # 寻找确认按钮
                 confirm_btn = modal.ele('css:button.btn-primary') or \
                               modal.ele('css:button[type="submit"]') or \
                               modal.ele('xpath:.//button[contains(text(), "Renew")]')
                 
                 if confirm_btn:
-                    print(f">>> 找到按钮: {confirm_btn.tag} | 文本: {confirm_btn.text}")
-                    
                     if not confirm_btn.states.is_enabled:
-                         print("⚠️ 按钮是灰色的 (Disabled)，尝试捕捉页面提示...")
+                         print("⚠️ 按钮是灰色的 (Disabled)，直接检查反馈...")
                          capture_real_message(page)
                     else:
+                        print(">>> 准备点击最终确认按钮...")
                         if robust_click(confirm_btn):
-                            print("🎉🎉🎉 点击确认指令已发送！")
+                            print("🎉🎉🎉 指令已发送，等待服务器响应...")
                             time.sleep(3) 
-                            # 【调用真实回显函数】
                             capture_real_message(page)
-                            print("✅✅✅ 脚本运行结束")
                         else:
                              raise Exception("点击操作最终失败")
                 else:
