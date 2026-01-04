@@ -66,42 +66,60 @@ def robust_click(ele):
             print(f"❌ 点击彻底失败: {e2}")
             return False
 
-def scan_page_message(page):
+def capture_real_message(page):
     """
-    【核心功能】扫描页面文字
-    根据您提供的截图，判断是成功了还是没到时间
+    【核心修正】不再猜测结果，而是抓取页面真实文字
     """
-    print(">>> [6/5] 正在扫描页面提示信息...")
-    
-    # 轮询检测，最多等 10 秒（等待提示框弹出）
+    print(">>> [6/5] 正在扫描页面真实反馈...")
     start_time = time.time()
-    while time.time() - start_time < 10:
-        # 获取当前页面的所有文本内容，转小写方便比对
-        full_text = page.html.lower()
-        
-        # --- 情况 1：未到期 (您截图里的红条文字) ---
-        # 关键词：can't renew your server yet
-        if "can't renew your server yet" in full_text:
-            print("\n" + "="*40)
-            print("🔴 【状态】: 还没到续期时间")
-            print("📝 【原文】: You can't renew your server yet.")
-            print("✅ 【结论】: 脚本运行成功！(已成功触发续期检测)")
-            print("="*40 + "\n")
-            return True
+    
+    found_any_message = False
 
-        # --- 情况 2：续期成功 ---
-        # 关键词：successfully / extended
-        if "successfully" in full_text or "extended" in full_text:
-            print("\n" + "="*40)
-            print("🟢 【状态】: 续期成功！")
-            print("📝 【原文】: Server renewed successfully.")
-            print("✅ 【结论】: 服务器寿命已延长。")
-            print("="*40 + "\n")
-            return True
+    # 轮询 10 秒，捕捉动态出现的提示
+    while time.time() - start_time < 10:
+        # 1. 优先抓取 Bootstrap 风格的提示框 (根据您的截图，红条通常是 alert 类)
+        alerts = page.eles('css:div[class*="alert"]')
+        # 2. 同时也抓取包含 "renew" 关键字的文本行
+        body_text = page.ele('tag:body').text
+        
+        # 整理所有发现的信息
+        messages = []
+        
+        # 提取 Alert 内容
+        for alert in alerts:
+            if alert.is_displayed():
+                messages.append(f"[提示框]: {alert.text}")
+
+        # 提取正文中包含 renew 的关键句 (防止漏掉)
+        lines = body_text.split('\n')
+        for line in lines:
+            if "renew" in line.lower() and len(line) < 100: # 只抓取短句，排除长段落
+                # 去重
+                if line not in str(messages):
+                    messages.append(f"[文本行]: {line}")
+
+        if messages:
+            found_any_message = True
+            print("\n" + "="*50)
+            print("📢 【页面真实回显】:")
+            for msg in messages:
+                print(f"   {msg}")
+            print("="*50 + "\n")
+            
+            # 智能判断结果
+            full_msg_str = str(messages).lower()
+            if "can't renew" in full_msg_str or "too early" in full_msg_str:
+                print("✅ 判定结果: 还没到时间 (脚本操作正确)")
+                return True
+            elif "success" in full_msg_str or "extended" in full_msg_str:
+                print("✅ 判定结果: 续期成功")
+                return True
             
         time.sleep(1)
     
-    print("❓ 未扫描到特定关键词，但流程已走完，默认视为成功。")
+    if not found_any_message:
+        print("⚠️ 未捕捉到明显提示，请查看上方日志中的最后截图(如有)或自行检查。")
+    
     return True
 
 def job():
@@ -178,16 +196,14 @@ def job():
                     print(f">>> 找到按钮: {confirm_btn.tag} | 文本: {confirm_btn.text}")
                     
                     if not confirm_btn.states.is_enabled:
-                         print("⚠️ 按钮是灰色的，直接扫描页面提示...")
-                         scan_page_message(page)
+                         print("⚠️ 按钮是灰色的 (Disabled)，尝试捕捉页面提示...")
+                         capture_real_message(page) # 按钮不可点，直接看提示
                     else:
                         if robust_click(confirm_btn):
                             print("🎉🎉🎉 点击确认指令已发送！")
-                            time.sleep(3) # 等待提示框出现
-                            
-                            # 【调用文字扫描】
-                            scan_page_message(page)
-                            
+                            time.sleep(3) 
+                            # 【调用真实回显函数】
+                            capture_real_message(page)
                             print("✅✅✅ 脚本运行结束")
                         else:
                              raise Exception("点击操作最终失败")
@@ -197,8 +213,7 @@ def job():
                 print("❌ 未检测到弹窗元素 (.modal-content)")
         else:
             print("⚠️ 主界面未找到 Renew 按钮")
-            # 即使没找到按钮，也扫一下页面，万一已经有提示了呢
-            scan_page_message(page)
+            capture_real_message(page)
 
     except Exception as e:
         print(f"❌ 运行出错: {e}")
