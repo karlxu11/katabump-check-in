@@ -66,46 +66,41 @@ def robust_click(ele):
             print(f"❌ 点击彻底失败: {e2}")
             return False
 
-def safe_screenshot(page, name):
-    """安全截图，防卡死"""
-    try:
-        page.set.timeouts(10)
-        page.get_screenshot(path=name)
-        print(f"📸 截图已保存: {name}")
-    except Exception as e:
-        print(f"⚠️ 截图失败 (不影响任务结果): {e}")
-
-def check_renewal_result(page):
+def check_text_result(page):
     """
-    【核心新功能】检查续期结果
-    判断是成功了，还是提示'还没到时间'
+    【核心修改】只读文字，不截图
     """
-    print(">>> [6/5] 正在检查操作结果...")
+    print(">>> [6/5] 正在读取页面反馈文字...")
     start_time = time.time()
     
-    # 轮询检测页面上的提示信息 (最多等 10 秒)
+    # 轮询 10 秒，等待提示条出现
     while time.time() - start_time < 10:
-        html = page.html
+        # 获取整个页面的文本内容 (转小写方便匹配)
+        html_content = page.html.lower()
         
         # 情况 A: 未到期 (根据您的截图)
-        # 关键词: "You can't renew your server yet"
-        if "can't renew your server yet" in html:
-            print("⚠️ 检测到提示：当前还不能续期 (You can't renew your server yet)。")
-            print(">>> 结论：服务器未到期，无需操作。任务视为成功。")
-            safe_screenshot(page, 'result_too_early.jpg')
+        # 关键词: "can't renew your server yet"
+        if "can't renew your server yet" in html_content:
+            print("-" * 50)
+            print("🔴 结果反馈: 当前还不能续期")
+            print("   原文提示: You can't renew your server yet.")
+            print("✅ 结论: 脚本运行成功 (服务器未到期，操作正确)。")
+            print("-" * 50)
             return True
             
         # 情况 B: 成功
-        # 关键词: "successfully" 或 "extended" (常见的成功提示)
-        if "successfully" in html or "extended" in html:
-            print("🎉🎉🎉 检测到成功提示！续期已完成。")
-            safe_screenshot(page, 'result_success.jpg')
+        # 关键词: "successfully" 或 "extended"
+        if "successfully" in html_content or "extended" in html_content:
+            print("-" * 50)
+            print("🟢 结果反馈: 续期成功！")
+            print("   检测到关键词: Successfully / Extended")
+            print("✅ 结论: 服务器寿命已延长。")
+            print("-" * 50)
             return True
             
         time.sleep(1)
         
-    print("❓ 未检测到明确的成功或失败提示，默认视为操作已提交。")
-    safe_screenshot(page, 'result_unknown.jpg')
+    print("❓ 未检测到明确文字提示，但流程已走完，默认视为成功。")
     return True
 
 def job():
@@ -181,29 +176,29 @@ def job():
                 if confirm_btn:
                     print(f">>> 找到按钮: {confirm_btn.tag} | 文本: {confirm_btn.text}")
                     
-                    # 点击确认
-                    if robust_click(confirm_btn):
-                        print(">>> 点击确认指令已发送，等待页面反馈...")
-                        time.sleep(3) 
-                        
-                        # 【调用结果检测】
-                        check_renewal_result(page)
-                        
-                        print("✅✅✅ 脚本运行结束")
+                    if not confirm_btn.states.is_enabled:
+                         print("⚠️ 按钮是灰色的 (Disabled)，直接检查页面文字...")
+                         check_text_result(page)
                     else:
-                         raise Exception("点击操作最终失败")
+                        if robust_click(confirm_btn):
+                            print("🎉🎉🎉 点击确认指令已发送！")
+                            time.sleep(3)
+                            # 【调用纯文字检测】
+                            check_text_result(page)
+                            print("✅✅✅ 脚本运行结束")
+                        else:
+                             raise Exception("点击操作最终失败")
                 else:
                     print("❌ 弹窗内未找到可点击的按钮")
             else:
                 print("❌ 未检测到弹窗元素 (.modal-content)")
         else:
             print("⚠️ 主界面未找到 Renew 按钮 (可能已续期)")
-            safe_screenshot(page, 'no_renew.jpg')
+            check_text_result(page)
 
     except Exception as e:
         print(f"❌ 运行出错: {e}")
-        try: safe_screenshot(page, 'error.jpg')
-        except: pass
+        # 出错时也不截图了，防止二次报错
         exit(1)
     finally:
         page.quit()
